@@ -3,25 +3,26 @@ function [y_pre,y_trade,l,Wt,ymax] = Update(Wt,xt,yt,epsilon,C)
 [K,d] = size(Wt);
 %normalization for xt
 score = Wt*xt';
+[dummy,ymax]=max(score);
 y_pre = (score>0);
-[dummy,ymax]=max(y_pre);
-P = (1-epsilon)*y_pre + ones(K,1)*epsilon * max(sum(y_pre),1)/K;
+if sum(y_pre) == 0
+    y_pre(ymax) = 1;
+end
+P = (1-epsilon)*y_pre + ones(K,1)*epsilon * sum(y_pre)/K;
 prob = zeros(K,2);
 prob(:,1) = P;
 prob(:,2) = ones(K,1) - P;
 dummy = mnrnd(1,prob,K);
 y_trade = dummy(:,1);
 if (y_trade == zeros(K,1))
-    y_trade(unidrnd(5),1) = 1;
+    y_trade = y_pre;
 end
 BF = zeros(K,1);
 for j = 1:K
-    if y_trade(j)==1 
-        if yt(j) == 1
-            BF(j) = 1;
-        else
-            BF(j) = 0;
-        end
+    if y_trade(j)==1 && yt(j) == 1
+        BF(j) = 1;
+    elseif y_trade(j)==1 && yt(j) == 0
+        BF(j) = 0;
     else
         BF(j) = 0.5;
     end

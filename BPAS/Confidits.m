@@ -1,60 +1,55 @@
 clear;clc;
-load('exp/final/mediamill.mat');
+%load('exp/final/mediamill.mat');
 %load('exp/final/rcv1.mat');
-%load('exp/final/yeast.mat');
-[n,d]=size(x);
-K = size(y,2);
+%load('DATA_thesis/multilabel/yeast/yeast.mat');
+load('DATA_thesis/multilabel/Image/Image.mat');
+[n,d]=size(X);
+K = size(Y,2);
 %parameter
 a = 0.5;
 alpha = 2^(-1); %alpha = 2^{-8,-7,...,6,7,8}
+R = 1;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%A = cell(K,1);
-%for i = 1:K
-%    A{i} = eye(d,d);
-%end
-%to simplify
-A = zeros(K,d);
+A = cell(K,1);
+A(:) = {eye(d,d)};
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 W = zeros(K,d);
 %evaluation
-hammingloss = zeros(n,1);
-Precision = zeros(n,1);
-Recall = zeros(n,1);
-OneError = zeros(n,1);
-cardinality = zeros(n,1);
-R = zeros(n,1);
+ml_criteria = zeros(n,10);%this is a standard criteria parameters. 
+%1:OneError; 2:Precision; 3:Recall; 4:Accuracy; 5:hammingloss; 6:F1-M;
+%7:hammingloss;8:Regret
 %start to train
 for t = 1:n
     t
-    xt = x(t,:)/norm(x(t,:));
-    HY = zeros(1,K);
+    t0 = clock;
+    xt = X(t,:)/norm(X(t,:));
     xAx= zeros(K,1);
     Ax = zeros(K,d);
-    Bandit = zeros(K,1);
+    BF = zeros(K,1);%Bandit Feedback
     W_ = W;
-    WT = xt * W';
-    [dummy,ymax] = max(WT);
+    wx = W * xt';
     for k = 1:K
         %%%%%%%%%%%%%%%%%%%%%%%%%%
         %to simplify
         %xAx(k) = xt/A{k}*xt';
         %Ax(k,:) = xt/A{k};
-        xAx(k) = xt.*A(k,:)*xt';
-        Ax(k,:) = xt./A(k,:);
+        xAx(k) = xt/A{k}*xt';
+        Ax(k,:) = (A{k}\xt')';
         %%%%%%%%%%%%%%%%%%%%%%%%%%
-        if WT(k)>1
-            W_(k,:) = W(k,:) - ((WT(k)-1)/xAx(k))*Ax(k,:);
-        elseif WT(k)<-1
-            W_(k,:) = W(k,:) - ((WT(k)+1)/xAx(k))*Ax(k,:);
+        if wx(k)>R
+            W_(k,:) = W(k,:) - ((wx(k)-R)/xAx(k))*Ax(k,:);
+        elseif wx(k)<-R
+            W_(k,:) = W(k,:) - ((wx(k)+R)/xAx(k))*Ax(k,:);
         else
             W_(k,:) = W(k,:);
         end
     end
-    delta = xt*W_';
+    score = xt*W_';
+    [dummy,ymax] = max(score);
     epsilon = alpha * log(t+1) * xAx';
     P = zeros(K,1);
     for k=1:K
-        tempo = delta(k)+epsilon(k);
+        tempo = score(k)+epsilon(k);
         if tempo>1
             P(k) = 1;
         elseif tempo<-1
@@ -63,75 +58,44 @@ for t = 1:n
             P(k) = (1+tempo)/2;
         end
     end
-    card = 1;
-    [delta_,index] = sort(delta,'descend');
-    Loss = 1-2*P(index(1));
-    for k = 1 : K
-        tempo = 1- 2*P(index(k));
-        if Loss +tempo <= Loss
-            card = k;
-        end
-        Loss = Loss + tempo;
+    HY = (P > 0.5);
+    if sum(HY) == 0
+        HY(ymax)=1;
     end
-    cardinality(t) = card;
-    HY(index(1:card)) = 1;
-    HYy = HY + 2*y(t,:);
     for k = 1:K
-        if HYy(k) == 3
-            Bandit(k) = 1;
-        elseif HYy(k) ==1;
-            Bandit(k) = -1;
+        if HY(k) ==1 && Y(t,k)==1
+            BF(k) = 1;
+        elseif HY(k) == 1 && Y(t,k) == 0
+            BF(k) = -1;
         else
-            Bandit(k) = 0;
+            BF(k) = 0;
         end
-        %update
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        %to simplify
-        %A{k} = A{k} + Bandit(k)^2* (xt'*xt);
-        %W(k,:) = W_(k,:) - (Bandit(k)*delta(k)-1)*Bandit(k)*xt/A{k};
-        A(k,:) = A(k,:) + Bandit(k)^2*(xt.*xt);
-        W(k,:) = W_(k,:) - (Bandit(k)*delta(k)-1)*Bandit(k)*(xt./A(k,:));
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        A{k} = A{k} + BF(k)^2*(xt'*xt);
+        W(k,:) = W_(k,:) - (BF(k)*score(k)-1)*BF(k)*(A{k}\xt')';
     end
-    hammingloss(t) = sum(HY~=y(t,:))/K;
-    temp = y(t,:)*HY';
-    if sum(y(t,:))==0
-        Precision(t)=0;
-    else
-        Precision(t) = temp/sum(y(t,:));
-    end
-    if sum(HY)==0
-        Recall(t) = 1;
-    else
-        Recall(t) = temp/sum(HY);
-    end
-    if y(t,ymax) ==1
-        OneError(t) = 0;
-    else
-        OneError(t) = 1;
-    end
-    for j=1:K
-        if HY(j)==1
-            if y(t,j)==1
-                delta = 1;
-            else
-                delta = 0;
-            end
-        else
-          delta = 0.5;  
-        end
-    end
-    loss = sum(max(HY+(ones(1,K)-2*delta).*(W*x(t,:)')',zeros(1,K)));
-    if t ==1
-        R(t) = loss;
-    else
-        R(t) = R(t-1)+ loss;
-    end
+    i=t;
+    ml_criteria(i,9) = etime(clock,t0);%time for each instance
+    ml_criteria(i,10) = sum(HY);%card
+    ml_criteria(i,1) = 1-Y(i,ymax);%1:OneError;
+    ml_criteria(i,2) = sum(Y(i,:).* HY')/sum(Y(i,:)); %2:Precision; 
+    ml_criteria(i,3) = sum(Y(i,:).* HY')/sum(HY);%3:Recall; 
+    ml_criteria(i,4) = sum(Y(i,:).* HY')/sum((Y(i,:)+HY')>0);%4:Accuracy; 
+    ml_criteria(i,5) = (sum((Y(i,:)+HY')>0) - sum(Y(i,:).* HY'));%5:hammingloss; 
+    ml_criteria(i,6) = 2*sum(Y(i,:).* HY')/(sum(Y(i,:))+sum(HY));%6:F1-M;
+    %ml_criteria(i,7) = loss/(norm(W)*K);%7:loss/W^2/K
+    ml_criteria(i,8) = sum(ml_criteria(1:i,7));%Regret/normWt
+    %ml_criteria(i,11) = loss;%Regret/normWt
+    %ml_criteria(i,12) = sum(ml_criteria(1:i,11));%Regret/normWt
 end
-%to change the evaluation
-s = floor(n/1000);
-ratioP = sum(reshape(Precision(1:s*1000),1000,s))/1000;
-ratioR = sum(reshape(Recall(1:s*1000),1000,s))/1000;
-ratioO = sum(reshape(OneError(1:s*1000),1000,s))/1000;
-ratioH = sum(reshape(hammingloss(1:s*1000),1000,s))/1000;
-sum(cardinality)/n
+ml = ml_criteria;
+n_ = floor(n/100);
+Precision = sum(reshape(ml(1:n_*100,2),100,n_))/100;
+Recall = sum(reshape(ml(1:n_*100,3),100,n_))/100;
+OneError = sum(reshape(ml(1:n_*100,1),100,n_))/100;
+Hammingloss = sum(reshape(ml(1:n_*100,5),100,n_))/100;
+temp1 = reshape(ml(1:n_*100,8),100,n_);
+Regret_Norm = temp1(100,:);
+%temp2 = reshape(ml(1:n_*100,12),100,n_);
+%Regret = temp2(100,:);
+card = sum(ml_criteria(i,10))/n;
+time = sum(ml_criteria(i,9))/n;
