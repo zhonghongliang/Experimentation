@@ -11,13 +11,13 @@ for k = 1:K
     Container{k,1}.alpha = 0;
 end
 epsilon = 0.3;
-lambda = 0.0065;
-eta = 0.95;
-tau = 200;
+lambda = 0.008;
+eta = 0.9;
+tau = 200;%500 for pendigits and 200 for segment
 mcc = zeros(n,2);%mc_criteria 1:loss;2:Regret;3:Error
 model = 'laplace';
 %model = 'linear';
-parameter = 1;
+parameter = 1;% 1 for segment; 10 for pendigits
 for i=1:n
     i
     t0 = clock;
@@ -48,16 +48,21 @@ for i=1:n
     else
         Container{ty,1} = Container{ty,1};
     end
-    mcc(i,4) = etime(clock,t0);
-    mcc(i,1) = lt;
-    mcc(i,2) = sum(mcc(1:i,1));
-    mcc(i,3) = 1- (hy ==Y(i));
+    mcc(i,4) = etime(clock,t0);%time
+    mcc(i,1) = lt;%loss
+    %co_alpha = size(Container{hy,1}.alpha,1);
+    mcc(i,2) = sum(mcc(1:i,1));%/Kernel(Container{hy,1}.x,ones(co_alpha,1),xt,model,parameter);%R/||w||
+    mcc(i,3) = 1- (hy ==Y(i));%M
+    mcc(i,5) = sum(mcc(1:i,3));% cumule loss
 end
 n_ = floor(n/100);
 T = sum(reshape(mcc(1:n_*100,4),100,n_))/100;
 M = sum(reshape(mcc(1:n_*100,3),100,n_))/100;
 temp = reshape(mcc(1:n_*100,2),100,n_);
+CM = reshape(mcc(1:n_*100,5),100,n_);
+plot(mcc(1:n,5))
 R = temp(100,:);
+CM(100,:)
 %xaxis = [];
 %for i = 1:n_
 %    xaxis = [xaxis, i];
